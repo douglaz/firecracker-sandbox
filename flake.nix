@@ -112,7 +112,7 @@
 
           cmd_exec() {
             if [ $# -eq 0 ]; then echo "Usage: firecracker-sandbox exec <cmd> [args...]"; exit 1; fi
-            if [ ! -f "$ROOTFS" ]; then echo "No rootfs. Run: firecracker-sandbox build"; exit 1; fi
+            if [ ! -f "$ROOTFS" ]; then cmd_build; fi
 
             LIVE="$(mktemp /tmp/fc-exec-XXXXXX.ext4)"
             cp "$ROOTFS" "$LIVE"
@@ -150,7 +150,7 @@
           }
 
           cmd_run() {
-            if [ ! -f "$ROOTFS" ]; then echo "No rootfs. Run: firecracker-sandbox build"; exit 1; fi
+            if [ ! -f "$ROOTFS" ]; then cmd_build; fi
 
             MEM=4096; CPUS=1; NET=false; HOST_IFACE=""
             while [ $# -gt 0 ]; do
