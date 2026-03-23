@@ -22,7 +22,11 @@ nix run github:douglaz/firecracker-sandbox -- build /path/to/my-static-binary
 nix run github:douglaz/firecracker-sandbox -- exec my-static-binary --help
 ```
 
+A default rootfs (busybox only) is built automatically on first `exec` or `run` if none exists.
+
 ## Commands
+
+All commands accept `--net`, `--mem MiB`, and `--cpus N` flags.
 
 ### `build`
 
@@ -41,7 +45,10 @@ Boot a VM, run a command, print the output, exit. ~0.9s overhead.
 
 ```bash
 nix run github:douglaz/firecracker-sandbox -- exec my-tool --version
-nix run github:douglaz/firecracker-sandbox -- exec sh -c "ls / && free -m && cat /proc/cpuinfo"
+nix run github:douglaz/firecracker-sandbox -- exec sh -c "ls / && free -m"
+nix run github:douglaz/firecracker-sandbox -- exec --net ping -c1 1.1.1.1
+nix run github:douglaz/firecracker-sandbox -- exec --net wget -qO- http://ifconfig.me
+nix run github:douglaz/firecracker-sandbox -- exec --mem 8192 --cpus 4 my-tool --benchmark
 ```
 
 ### `run`
@@ -49,11 +56,11 @@ nix run github:douglaz/firecracker-sandbox -- exec sh -c "ls / && free -m && cat
 Interactive VM with a shell on the serial console.
 
 ```bash
-nix run github:douglaz/firecracker-sandbox -- run                    # 1 vCPU, 4GB RAM
-nix run github:douglaz/firecracker-sandbox -- run --mem 8192         # 8GB RAM
-nix run github:douglaz/firecracker-sandbox -- run --cpus 4           # 4 vCPUs
-nix run github:douglaz/firecracker-sandbox -- run --net              # with internet access
-nix run github:douglaz/firecracker-sandbox -- run --net --mem 2048   # combine flags
+nix run github:douglaz/firecracker-sandbox -- run
+nix run github:douglaz/firecracker-sandbox -- run --mem 8192
+nix run github:douglaz/firecracker-sandbox -- run --cpus 4
+nix run github:douglaz/firecracker-sandbox -- run --net
+nix run github:douglaz/firecracker-sandbox -- run --net --mem 2048 --cpus 2
 ```
 
 Exit with Ctrl+C.
@@ -61,11 +68,11 @@ Exit with Ctrl+C.
 ## Dev shell
 
 ```bash
-cd ~/my-project
 nix develop github:douglaz/firecracker-sandbox
 
 firecracker-sandbox build ./my-binary
 firecracker-sandbox exec my-binary --help
+firecracker-sandbox exec --net ping -c1 1.1.1.1
 firecracker-sandbox run --net
 ```
 
@@ -84,7 +91,7 @@ firecracker-sandbox run --net
 
 ## Networking
 
-`--net` creates a TAP device on the host with NAT. The guest gets:
+`--net` creates a TAP device on the host with NAT:
 
 | | Address |
 |---|---|
