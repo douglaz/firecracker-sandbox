@@ -152,11 +152,15 @@
             if [ $# -eq 0 ]; then echo "Usage: firecracker-sandbox exec [--net] [--mem MiB] [--cpus N] <cmd> [args...]"; exit 1; fi
             if [ ! -f "$ROOTFS" ]; then cmd_build; fi
 
-            LIVE="$(mktemp /tmp/fc-exec-XXXXXX.ext4)"
-            cp "$ROOTFS" "$LIVE"
-            trap 'rm -f "$LIVE"' EXIT
+            TMPDIR="$(mktemp -d /tmp/fc-exec-XXXXXX)"
+            trap 'rm -rf "$TMPDIR"' EXIT
 
-            MNT="$(mktemp -d)"
+            LIVE="$TMPDIR/rootfs.ext4"
+            CONFIG="$TMPDIR/config.json"
+            cp "$ROOTFS" "$LIVE"
+
+            MNT="$TMPDIR/mnt"
+            mkdir -p "$MNT"
             sudo mount -o loop "$LIVE" "$MNT"
             CMD="$*"
             NET_INIT=""
@@ -175,9 +179,7 @@
           INIT
             sudo chmod +x "$MNT/init"
             sudo umount "$MNT"
-            rmdir "$MNT"
 
-            CONFIG="$(mktemp /tmp/fc-config-XXXXXX.json)"
             cat > "$CONFIG" << EOF
           {
             "boot-source": {
@@ -190,18 +192,19 @@
           }
           EOF
             "$FC" --no-api --config-file "$CONFIG" --log-path /dev/null 2>/dev/null | grep -v '^\['
-            rm -f "$CONFIG"
           }
 
           cmd_run() {
             setup_opts "$@"; set -- "''${REMAINING_ARGS[@]}"
             if [ ! -f "$ROOTFS" ]; then cmd_build; fi
 
-            LIVE="$(mktemp /tmp/fc-run-XXXXXX.ext4)"
-            cp "$ROOTFS" "$LIVE"
-            trap 'rm -f "$LIVE" /tmp/fc-run-config-$$.json' EXIT
+            TMPDIR="$(mktemp -d /tmp/fc-run-XXXXXX)"
+            trap 'rm -rf "$TMPDIR"' EXIT
 
-            CONFIG="/tmp/fc-run-config-$$.json"
+            LIVE="$TMPDIR/rootfs.ext4"
+            CONFIG="$TMPDIR/config.json"
+            cp "$ROOTFS" "$LIVE"
+
             cat > "$CONFIG" << EOF
           {
             "boot-source": {
