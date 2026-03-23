@@ -1,45 +1,45 @@
 # firecracker-sandbox
 
-Minimal Firecracker microVM sandbox for running static binaries in an isolated Linux VM.
+Run static Linux binaries in an isolated Firecracker microVM. Single command, nothing to install besides Nix.
 
 ## Prerequisites
 
 - Linux x86_64 with KVM (`/dev/kvm`)
 - Nix with flakes enabled
 
-Load KVM if needed:
 ```bash
+# Load KVM if needed
 sudo modprobe kvm && sudo modprobe kvm_amd   # or kvm_intel
 ```
 
-## Quick start
+## Usage
 
 ```bash
-# Build a rootfs with your static binary
-nix run github:douglaz/firecracker-sandbox -- build /path/to/my-static-binary
+# Run a command in a VM (builds a default rootfs automatically)
+nix run github:douglaz/firecracker-sandbox -- exec uname -a
+
+# Add your own static binary to the rootfs
+nix run github:douglaz/firecracker-sandbox -- build /path/to/my-binary
 
 # Run it
-nix run github:douglaz/firecracker-sandbox -- exec my-static-binary --help
+nix run github:douglaz/firecracker-sandbox -- exec my-binary --help
+
+# Interactive shell
+nix run github:douglaz/firecracker-sandbox -- run
 ```
 
-A default rootfs (busybox only) is built automatically on first `exec` or `run` if none exists.
+### `build [binary...]`
 
-## Commands
-
-All commands accept `--net`, `--mem MiB`, and `--cpus N` flags.
-
-### `build`
-
-Builds a 64MB ext4 rootfs with busybox and any extra static binaries.
+Create a rootfs with busybox and optional extra static binaries.
 
 ```bash
 nix run github:douglaz/firecracker-sandbox -- build                        # busybox only
 nix run github:douglaz/firecracker-sandbox -- build ./my-tool ./other-tool # + your binaries
 ```
 
-Binaries are placed in `/usr/bin/` inside the guest. Requires `sudo` for `mount -o loop`.
+Binaries go to `/usr/bin/` in the guest. A default rootfs is built automatically on first `exec` or `run` if none exists.
 
-### `exec`
+### `exec [--net] [--mem MiB] [--cpus N] <cmd> [args...]`
 
 Boot a VM, run a command, print the output, exit. ~0.9s overhead.
 
@@ -51,30 +51,32 @@ nix run github:douglaz/firecracker-sandbox -- exec --net wget -qO- http://ifconf
 nix run github:douglaz/firecracker-sandbox -- exec --mem 8192 --cpus 4 my-tool --benchmark
 ```
 
-### `run`
+### `run [--net] [--mem MiB] [--cpus N]`
 
-Interactive VM with a shell on the serial console.
+Interactive VM with a shell. Ctrl+C to exit.
 
 ```bash
 nix run github:douglaz/firecracker-sandbox -- run
-nix run github:douglaz/firecracker-sandbox -- run --mem 8192
-nix run github:douglaz/firecracker-sandbox -- run --cpus 4
-nix run github:douglaz/firecracker-sandbox -- run --net
-nix run github:douglaz/firecracker-sandbox -- run --net --mem 2048 --cpus 2
+nix run github:douglaz/firecracker-sandbox -- run --net --mem 8192 --cpus 2
 ```
 
-Exit with Ctrl+C.
+## Options
 
-## Dev shell
+| Flag | Default | Description |
+|---|---|---|
+| `--net` | off | Enable networking (TAP + NAT) |
+| `--mem` | 4096 | Guest RAM in MiB |
+| `--cpus` | 1 | Number of vCPUs |
 
-```bash
-nix develop github:douglaz/firecracker-sandbox
+## Networking
 
-firecracker-sandbox build ./my-binary
-firecracker-sandbox exec my-binary --help
-firecracker-sandbox exec --net ping -c1 1.1.1.1
-firecracker-sandbox run --net
-```
+`--net` creates a TAP device with NAT to the host's default interface:
+
+| | Address |
+|---|---|
+| Guest | 172.16.0.2 |
+| Host/Gateway | 172.16.0.1 |
+| DNS | 1.1.1.1 |
 
 ## Environment variables
 
@@ -84,26 +86,15 @@ firecracker-sandbox run --net
 
 ## What's inside the VM
 
-- Linux 5.10.233 kernel (Firecracker CI build)
+- Linux 5.10.233 kernel
 - Busybox (sh, ls, cat, mount, free, wget, etc.)
 - Your static binaries
 - No systemd, no distro, no package manager
 
-## Networking
-
-`--net` creates a TAP device on the host with NAT:
-
-| | Address |
-|---|---|
-| Guest IP | 172.16.0.2 |
-| Host/Gateway | 172.16.0.1 |
-| DNS | 1.1.1.1 |
-
-Requires `sudo` for TAP setup and iptables rules.
-
 ## Notes
 
-- All guest binaries must be **statically linked** — there is no dynamic linker or libc in the rootfs
-- Firecracker is pinned to v1.12.0
-- The rootfs is copied before each boot, so changes inside the VM don't persist
-- `build` and `exec` require `sudo` for `mount -o loop`
+- Guest binaries must be **statically linked**
+- Firecracker v1.12.0 (pinned)
+- Each boot uses a fresh copy of the rootfs — changes don't persist
+- `build` and `exec` need `sudo` for `mount -o loop`
+- `--net` needs `sudo` for TAP/iptables setup
