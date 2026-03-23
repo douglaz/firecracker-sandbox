@@ -17,7 +17,7 @@
           version = "1.12.0";
           src = pkgs.fetchurl {
             url = "https://github.com/firecracker-microvm/firecracker/releases/download/v1.12.0/firecracker-v1.12.0-x86_64.tgz";
-            sha256 = "sha256-NwCmDPKJqpMaGpg/WpCusFCp3kT4dOJoGaUzRl2mz1s=";
+            sha256 = "sha256-OStffkvxKHHR6Dd6YO07OEpGvC99N3HK8gKqemPjJnY=";
           };
           sourceRoot = ".";
           unpackPhase = "tar xzf $src";
