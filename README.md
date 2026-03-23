@@ -1,4 +1,4 @@
-# firecracker
+# firecracker-sandbox
 
 Minimal Firecracker microVM sandbox for running static binaries in an isolated Linux VM.
 
@@ -15,50 +15,65 @@ sudo modprobe kvm && sudo modprobe kvm_amd   # or kvm_intel
 ## Quick start
 
 ```bash
-nix develop
-
 # Build a rootfs with your static binary
-bash build-rootfs.sh /path/to/my-static-binary
+nix run github:douglaz/firecracker-sandbox -- build /path/to/my-static-binary
 
 # Run it
-bash fc-exec.sh my-static-binary --help
+nix run github:douglaz/firecracker-sandbox -- exec my-static-binary --help
 ```
 
-## Scripts
+## Commands
 
-### `build-rootfs.sh`
+### `build`
 
-Builds a 64MB ext4 rootfs with busybox and any extra static binaries you pass as arguments.
+Builds a 64MB ext4 rootfs with busybox and any extra static binaries.
 
 ```bash
-bash build-rootfs.sh                          # busybox only
-bash build-rootfs.sh ./my-tool ./other-tool   # busybox + your binaries
+nix run github:douglaz/firecracker-sandbox -- build                        # busybox only
+nix run github:douglaz/firecracker-sandbox -- build ./my-tool ./other-tool # + your binaries
 ```
 
 Binaries are placed in `/usr/bin/` inside the guest. Requires `sudo` for `mount -o loop`.
 
-### `fc-exec.sh`
+### `exec`
 
 Boot a VM, run a command, print the output, exit. ~0.9s overhead.
 
 ```bash
-bash fc-exec.sh my-tool --version
-bash fc-exec.sh sh -c "ls / && free -m && cat /proc/cpuinfo"
+nix run github:douglaz/firecracker-sandbox -- exec my-tool --version
+nix run github:douglaz/firecracker-sandbox -- exec sh -c "ls / && free -m && cat /proc/cpuinfo"
 ```
 
-### `fc-run.sh`
+### `run`
 
 Interactive VM with a shell on the serial console.
 
 ```bash
-bash fc-run.sh                    # 1 vCPU, 4GB RAM
-bash fc-run.sh --mem 8192         # 8GB RAM
-bash fc-run.sh --cpus 4           # 4 vCPUs
-bash fc-run.sh --net              # with internet access
-bash fc-run.sh --net --mem 2048   # combine flags
+nix run github:douglaz/firecracker-sandbox -- run                    # 1 vCPU, 4GB RAM
+nix run github:douglaz/firecracker-sandbox -- run --mem 8192         # 8GB RAM
+nix run github:douglaz/firecracker-sandbox -- run --cpus 4           # 4 vCPUs
+nix run github:douglaz/firecracker-sandbox -- run --net              # with internet access
+nix run github:douglaz/firecracker-sandbox -- run --net --mem 2048   # combine flags
 ```
 
 Exit with Ctrl+C.
+
+## Dev shell
+
+```bash
+cd ~/my-project
+nix develop github:douglaz/firecracker-sandbox
+
+firecracker-sandbox build ./my-binary
+firecracker-sandbox exec my-binary --help
+firecracker-sandbox run --net
+```
+
+## Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `FIRECRACKER_ROOTFS` | `./rootfs.ext4` | Path to the rootfs image |
 
 ## What's inside the VM
 
@@ -83,5 +98,5 @@ Requires `sudo` for TAP setup and iptables rules.
 
 - All guest binaries must be **statically linked** — there is no dynamic linker or libc in the rootfs
 - Firecracker is pinned to v1.12.0
-- The rootfs is copied before each boot (Firecracker modifies it), so changes inside the VM don't persist
-- `fc-exec.sh` needs `sudo` for the `mount -o loop` to inject the init script
+- The rootfs is copied before each boot, so changes inside the VM don't persist
+- `build` and `exec` require `sudo` for `mount -o loop`
