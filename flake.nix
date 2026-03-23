@@ -49,7 +49,7 @@
             echo ""
             echo "Commands:"
             echo "  build [binary...]   Build rootfs with busybox + extra static binaries"
-            echo "  exec <cmd> [args]   Run a command in a fresh VM, print output, exit"
+            echo "  exec [opts] <cmd>   Run a command in a fresh VM, print output, exit"
             echo "  run [--net] [--mem MiB] [--cpus N]   Interactive VM with shell"
             echo ""
             echo "Environment:"
@@ -58,6 +58,7 @@
             echo "Examples:"
             echo "  firecracker-sandbox build /path/to/my-static-binary"
             echo "  firecracker-sandbox exec my-binary --help"
+            echo "  firecracker-sandbox exec --net ping -c1 1.1.1.1"
             echo "  firecracker-sandbox exec sh -c 'ls / && free -m'"
             echo "  firecracker-sandbox run --net --mem 8192"
           }
@@ -110,64 +111,23 @@
             echo "Done: $ROOTFS ($(du -h "$ROOTFS" | cut -f1))"
           }
 
-          cmd_exec() {
-            if [ $# -eq 0 ]; then echo "Usage: firecracker-sandbox exec <cmd> [args...]"; exit 1; fi
-            if [ ! -f "$ROOTFS" ]; then cmd_build; fi
-
-            LIVE="$(mktemp /tmp/fc-exec-XXXXXX.ext4)"
-            cp "$ROOTFS" "$LIVE"
-            trap 'rm -f "$LIVE"' EXIT
-
-            MNT="$(mktemp -d)"
-            sudo mount -o loop "$LIVE" "$MNT"
-            CMD="$*"
-            sudo tee "$MNT/init" > /dev/null << INIT
-          #!/bin/sh
-          mount -t proc proc /proc
-          mount -t sysfs sysfs /sys
-          mount -t devtmpfs devtmpfs /dev 2>/dev/null
-          export PATH=/usr/bin:/bin:/sbin
-          $CMD 2>&1
-          reboot -f
-          INIT
-            sudo chmod +x "$MNT/init"
-            sudo umount "$MNT"
-            rmdir "$MNT"
-
-            CONFIG="$(mktemp /tmp/fc-config-XXXXXX.json)"
-            cat > "$CONFIG" << EOF
-          {
-            "boot-source": {
-              "kernel_image_path": "$VMLINUX",
-              "boot_args": "console=ttyS0 reboot=t panic=1 pci=off init=/init random.trust_cpu=on quiet"
-            },
-            "drives": [{"drive_id":"rootfs","path_on_host":"$LIVE","is_root_device":true,"is_read_only":false}],
-            "machine-config": {"vcpu_count":1,"mem_size_mib":4096}
-          }
-          EOF
-            "$FC" --no-api --config-file "$CONFIG" --log-path /dev/null 2>/dev/null | grep -v '^\['
-            rm -f "$CONFIG"
-          }
-
-          cmd_run() {
-            if [ ! -f "$ROOTFS" ]; then cmd_build; fi
-
-            MEM=4096; CPUS=1; NET=false; HOST_IFACE=""
+          # Shared: parse --net/--mem/--cpus flags, setup TAP+NAT if needed
+          # Sets: MEM, CPUS, NET_CONFIG (globals)
+          MEM=4096; CPUS=1; NET_CONFIG=""
+          setup_opts() {
+            local net=false
             while [ $# -gt 0 ]; do
               case "$1" in
-                --net) NET=true; shift ;;
+                --net) net=true; shift ;;
                 --mem) MEM="$2"; shift 2 ;;
                 --cpus) CPUS="$2"; shift 2 ;;
-                *) echo "Unknown: $1"; exit 1 ;;
+                *) break ;;
               esac
             done
+            # Return remaining args via global
+            REMAINING_ARGS=("$@")
 
-            LIVE="$(mktemp /tmp/fc-run-XXXXXX.ext4)"
-            cp "$ROOTFS" "$LIVE"
-            trap 'rm -f "$LIVE" /tmp/fc-run-config-$$.json' EXIT
-
-            NET_CONFIG=""
-            if $NET; then
+            if $net; then
               TAP="fc-tap0"
               HOST_IFACE="$(ip route | awk '/^default/{print $5; exit}')"
               if ! ip link show "$TAP" &>/dev/null; then
@@ -183,8 +143,63 @@
                   || sudo iptables -A FORWARD -i "$HOST_IFACE" -o "$TAP" -m state --state RELATED,ESTABLISHED -j ACCEPT
               fi
               NET_CONFIG=',"network-interfaces":[{"iface_id":"eth0","guest_mac":"AA:FC:00:00:00:01","host_dev_name":"'$TAP'"}]'
-              echo "Network: guest 172.16.0.2 <-> host 172.16.0.1 (NAT via $HOST_IFACE)"
+              echo "Network: guest 172.16.0.2 <-> host 172.16.0.1 (NAT via $HOST_IFACE)" >&2
             fi
+          }
+
+          cmd_exec() {
+            setup_opts "$@"; set -- "''${REMAINING_ARGS[@]}"
+            if [ $# -eq 0 ]; then echo "Usage: firecracker-sandbox exec [--net] [--mem MiB] [--cpus N] <cmd> [args...]"; exit 1; fi
+            if [ ! -f "$ROOTFS" ]; then cmd_build; fi
+
+            LIVE="$(mktemp /tmp/fc-exec-XXXXXX.ext4)"
+            cp "$ROOTFS" "$LIVE"
+            trap 'rm -f "$LIVE"' EXIT
+
+            MNT="$(mktemp -d)"
+            sudo mount -o loop "$LIVE" "$MNT"
+            CMD="$*"
+            NET_INIT=""
+            if [ -n "$NET_CONFIG" ]; then
+              NET_INIT='ip addr add 172.16.0.2/24 dev eth0; ip link set eth0 up; ip route add default via 172.16.0.1; echo "nameserver 1.1.1.1" > /etc/resolv.conf'
+            fi
+            sudo tee "$MNT/init" > /dev/null << INIT
+          #!/bin/sh
+          mount -t proc proc /proc
+          mount -t sysfs sysfs /sys
+          mount -t devtmpfs devtmpfs /dev 2>/dev/null
+          export PATH=/usr/bin:/bin:/sbin
+          $NET_INIT
+          $CMD 2>&1
+          reboot -f
+          INIT
+            sudo chmod +x "$MNT/init"
+            sudo umount "$MNT"
+            rmdir "$MNT"
+
+            CONFIG="$(mktemp /tmp/fc-config-XXXXXX.json)"
+            cat > "$CONFIG" << EOF
+          {
+            "boot-source": {
+              "kernel_image_path": "$VMLINUX",
+              "boot_args": "console=ttyS0 reboot=t panic=1 pci=off init=/init random.trust_cpu=on quiet"
+            },
+            "drives": [{"drive_id":"rootfs","path_on_host":"$LIVE","is_root_device":true,"is_read_only":false}],
+            "machine-config": {"vcpu_count":$CPUS,"mem_size_mib":$MEM}
+            $NET_CONFIG
+          }
+          EOF
+            "$FC" --no-api --config-file "$CONFIG" --log-path /dev/null 2>/dev/null | grep -v '^\['
+            rm -f "$CONFIG"
+          }
+
+          cmd_run() {
+            setup_opts "$@"; set -- "''${REMAINING_ARGS[@]}"
+            if [ ! -f "$ROOTFS" ]; then cmd_build; fi
+
+            LIVE="$(mktemp /tmp/fc-run-XXXXXX.ext4)"
+            cp "$ROOTFS" "$LIVE"
+            trap 'rm -f "$LIVE" /tmp/fc-run-config-$$.json' EXIT
 
             CONFIG="/tmp/fc-run-config-$$.json"
             cat > "$CONFIG" << EOF
