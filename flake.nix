@@ -31,7 +31,7 @@
         # Fetch Firecracker-compatible kernel
         vmlinux = pkgs.fetchurl {
           url = "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.12/x86_64/vmlinux-5.10.233";
-          sha256 = "sha256-UMFBfxKfOoclrMnLqOKOFSMNjGMOELSJiJYBd5RA/YQ=";
+          sha256 = "sha256-OjDZHzv0deOVC5gl0EfGg5vGQknzg/YXORL+iv6JtcM=";
         };
 
         # Static busybox for the guest rootfs
