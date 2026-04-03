@@ -63,6 +63,29 @@
             echo "  firecracker-sandbox run --net --mem 8192"
           }
 
+          quote_sh() {
+            printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")"
+          }
+
+          require_kvm() {
+            local vendor_module="kvm_intel"
+            if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
+              vendor_module="kvm_amd"
+            fi
+
+            if [ ! -e /dev/kvm ]; then
+              echo "Error: /dev/kvm is missing. Firecracker needs KVM on the host." >&2
+              echo "Hint: sudo modprobe kvm && sudo modprobe $vendor_module" >&2
+              exit 1
+            fi
+
+            if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+              echo "Error: current user cannot access /dev/kvm." >&2
+              ls -l /dev/kvm >&2 || true
+              exit 1
+            fi
+          }
+
           cmd_build() {
             echo "Building rootfs: $ROOTFS"
             dd if=/dev/zero of="$ROOTFS" bs=1M count=64 status=none
@@ -150,6 +173,7 @@
           cmd_exec() {
             setup_opts "$@"; set -- "''${REMAINING_ARGS[@]}"
             if [ $# -eq 0 ]; then echo "Usage: firecracker-sandbox exec [--net] [--mem MiB] [--cpus N] <cmd> [args...]"; exit 1; fi
+            require_kvm
             if [ ! -f "$ROOTFS" ]; then cmd_build; fi
 
             TMPDIR="$(mktemp -d /tmp/fc-exec-XXXXXX)"
@@ -162,7 +186,13 @@
             MNT="$TMPDIR/mnt"
             mkdir -p "$MNT"
             sudo mount -o loop "$LIVE" "$MNT"
-            CMD="$*"
+            CMD=""
+            for arg in "$@"; do
+              if [ -n "$CMD" ]; then
+                CMD="$CMD "
+              fi
+              CMD="$CMD$(quote_sh "$arg")"
+            done
             NET_INIT=""
             if [ -n "$NET_CONFIG" ]; then
               NET_INIT='ip addr add 172.16.0.2/24 dev eth0; ip link set eth0 up; ip route add default via 172.16.0.1; echo "nameserver 1.1.1.1" > /etc/resolv.conf'
@@ -191,11 +221,12 @@
             $NET_CONFIG
           }
           EOF
-            "$FC" --no-api --config-file "$CONFIG" --log-path /dev/null 2>/dev/null | grep -v '^\['
+            "$FC" --no-api --config-file "$CONFIG" --log-path /dev/null 2>&1 | sed '/^\[/d'
           }
 
           cmd_run() {
             setup_opts "$@"; set -- "''${REMAINING_ARGS[@]}"
+            require_kvm
             if [ ! -f "$ROOTFS" ]; then cmd_build; fi
 
             TMPDIR="$(mktemp -d /tmp/fc-run-XXXXXX)"
